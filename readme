@@ -1,0 +1,25 @@
+# ComfyUI Sharp Frame Selector
+
+A custom node for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) that automatically filters video frames to select only the sharpest ones.
+
+This is a ComfyUI implementation of the logic found in [sharp-frames](https://github.com/Reflct/sharp-frames-python). It calculates the Laplacian variance of each frame to determine focus quality and selects the best candidates based on your chosen strategy.
+
+## Features
+
+- **No external CLI tools required**: Runs entirely within ComfyUI using OpenCV.
+- **Batched Selection**: Perfect for videos. Divides the timeline into chunks (e.g., every 1 second) and picks the single sharpest frame from that chunk. Ensures you never miss a scene.
+- **Best-N Selection**: Simply picks the top N sharpest frames from the entire batch, regardless of when they occur.
+- **GPU Efficient**: Keeps image data on the GPU where possible, only moving small batches to CPU for the sharpness calculation.
+
+## Installation
+
+### Method 1: Manager (Recommended)
+If this node is available in the ComfyUI Manager, search for "Sharp Frame Selector" and install.
+
+### Method 2: Manual
+Clone this repository into your `custom_nodes` folder:
+
+```bash
+cd ComfyUI/custom_nodes/
+git clone [https://github.com/YOUR_USERNAME/ComfyUI-Sharp-Selector.git](https://github.com/YOUR_USERNAME/ComfyUI-Sharp-Selector.git)
+pip install -r ComfyUI-Sharp-Selector/requirements.txt
