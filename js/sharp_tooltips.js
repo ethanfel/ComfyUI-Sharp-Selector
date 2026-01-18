@@ -4,15 +4,15 @@ app.registerExtension({
     name: "SharpFrames.Tooltips",
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
         if (nodeData.name === "SharpFrameSelector") {
-            
             const tooltips = {
-                "selection_method": "Strategy:\n• 'batched': Best for video. Splits time into slots (Batch Size) and picks the winner.\n• 'best_n': Picks the absolute sharpest frames globally, ignoring time.",
-                
-                "batch_size": "For 'batched' mode only.\nDefines the size of the time slot.\nExample: 24fps video + batch 24 = 1 selected frame per second.",
-                
-                "num_frames": "For 'best_n' mode only.\nThe total quantity of frames you want to output.",
-                
-                "min_sharpness": "Threshold Filter.\nAny frame with a score lower than this is discarded immediately.\n\n⚠️ IMPORTANT: Scores depend on image size. \nIf you used the 'Sidechain' workflow (Resized Analyzer), scores will be much lower (e.g. 50 instead of 500)."
+                // Must match Python INPUT_TYPES keys exactly
+                "selection_method": "Strategy:\n• 'batched': Best for video. Splits time into slots.\n• 'best_n': Global top sharpest frames.",
+                "batch_size": "For 'batched' mode.\nSize of the analysis window (in frames).",
+                "batch_buffer": "For 'batched' mode.\nFrames to skip AFTER each batch (dead zone).",
+                "num_frames": "For 'best_n' mode.\nTotal frames to output.",
+                "min_sharpness": "Threshold Filter.\nDiscard frames with score below this.\nNote: Scores are lower on resized images.",
+                "images": "Input High-Res images.",
+                "scores": "Input Sharpness Scores from Analyzer."
             };
 
             const onNodeCreated = nodeType.prototype.onNodeCreated;
@@ -23,6 +23,9 @@ app.registerExtension({
                     for (const w of this.widgets) {
                         if (tooltips[w.name]) {
                             w.tooltip = tooltips[w.name];
+                            // Force update for immediate feedback
+                            w.options = w.options || {};
+                            w.options.tooltip = tooltips[w.name];
                         }
                     }
                 }
