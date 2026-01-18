@@ -2,12 +2,43 @@ import torch
 import numpy as np
 import cv2
 
-class SharpFrameSelector:
+# --- NODE 1: ANALYZER (Calculates the scores) ---
+class SharpnessAnalyzer:
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
                 "images": ("IMAGE",),
+            }
+        }
+
+    RETURN_TYPES = ("SHARPNESS_SCORES",)
+    RETURN_NAMES = ("scores",)
+    FUNCTION = "analyze_sharpness"
+    CATEGORY = "SharpFrames"
+
+    def analyze_sharpness(self, images):
+        print(f"[SharpAnalyzer] Calculating scores for {len(images)} frames...")
+        scores = []
+        
+        # This loop is fast if 'images' are small (resized)
+        for i in range(len(images)):
+            img_np = (images[i].cpu().numpy() * 255).astype(np.uint8)
+            gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+            score = cv2.Laplacian(gray, cv2.CV_64F).var()
+            scores.append(score)
+            
+        # We pass the list of scores to the next node
+        return (scores,)
+
+# --- NODE 2: SELECTOR (Uses scores to filter high-res images) ---
+class SharpFrameSelector:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "images": ("IMAGE",), # Connect High-Res images here
+                "scores": ("SHARPNESS_SCORES",), # Connect output of Analyzer here
                 "selection_method": (["batched", "best_n"],),
                 "batch_size": ("INT", {"default": 24, "min": 1, "max": 10000, "step": 1}),
                 "num_frames": ("INT", {"default": 10, "min": 1, "max": 10000, "step": 1}),
@@ -16,57 +47,37 @@ class SharpFrameSelector:
 
     RETURN_TYPES = ("IMAGE", "INT")
     RETURN_NAMES = ("selected_images", "count")
-    FUNCTION = "process_images"
+    FUNCTION = "select_frames"
     CATEGORY = "SharpFrames"
     
-    def process_images(self, images, selection_method, batch_size, num_frames):
-        # images is a Tensor: [Batch, Height, Width, Channels] (RGB, 0.0-1.0)
-        
-        total_input_frames = len(images)
-        print(f"[SharpSelector] Analyzing {total_input_frames} frames...")
-        
-        scores = []
-
-        # We must iterate to calculate score per frame
-        # OpenCV runs on CPU, so we must move frame-by-frame or batch-to-cpu
-        for i in range(total_input_frames):
-            # 1. Grab single frame, move to CPU, convert to numpy
-            # 2. Scale 0.0-1.0 to 0-255
-            img_np = (images[i].cpu().numpy() * 255).astype(np.uint8)
-            
-            # 3. Convert RGB to Gray for Laplacian
-            gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-            
-            # 4. Calculate Variance of Laplacian
-            score = cv2.Laplacian(gray, cv2.CV_64F).var()
-            scores.append(score)
+    def select_frames(self, images, scores, selection_method, batch_size, num_frames):
+        # Validation
+        if len(images) != len(scores):
+            print(f"[SharpSelector] WARNING: Frame count mismatch! Images: {len(images)}, Scores: {len(scores)}")
+            # If mismatch (e.g. latent optimization), we truncate to the shorter length
+            min_len = min(len(images), len(scores))
+            images = images[:min_len]
+            scores = scores[:min_len]
 
         selected_indices = []
 
-        # --- SELECTION LOGIC ---
+        # --- SELECTION LOGIC (Same as before, but using pre-calculated scores) ---
         if selection_method == "batched":
-            # Best frame every N frames
-            for i in range(0, total_input_frames, batch_size):
-                chunk_end = min(i + batch_size, total_input_frames)
+            total_frames = len(scores)
+            for i in range(0, total_frames, batch_size):
+                chunk_end = min(i + batch_size, total_frames)
                 chunk_scores = scores[i : chunk_end]
                 
-                # argmax gives relative index (0 to batch_size), add 'i' for absolute
+                # Find best in batch
                 best_in_chunk_idx = np.argmax(chunk_scores)
                 selected_indices.append(i + best_in_chunk_idx)
                 
         elif selection_method == "best_n":
-            # Top N sharpest frames globally, sorted by time
-            target_count = min(num_frames, total_input_frames)
-            
-            # argsort sorts low to high, we take the last N (highest scores)
+            target_count = min(num_frames, len(scores))
             top_indices = np.argsort(scores)[-target_count:]
-            
-            # Sort indices to keep original video order
             selected_indices = sorted(top_indices)
 
         print(f"[SharpSelector] Selected {len(selected_indices)} frames.")
-        
-        # Filter the original GPU tensor using the selected indices
         result_images = images[selected_indices]
         
         return (result_images, len(selected_indices))
