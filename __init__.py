@@ -1,13 +1,13 @@
-from .sharp_node import SharpFrameSelector
+from .sharp_node import SharpnessAnalyzer, SharpFrameSelector
 
-# Map the class to a name ComfyUI recognizes
 NODE_CLASS_MAPPINGS = {
+    "SharpnessAnalyzer": SharpnessAnalyzer,
     "SharpFrameSelector": SharpFrameSelector
 }
 
-# Map the internal name to a human-readable label in the menu
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SharpFrameSelector": "Sharp Frame Selector (Video)"
+    "SharpnessAnalyzer": "1. Sharpness Analyzer",
+    "SharpFrameSelector": "2. Sharp Frame Selector"
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
