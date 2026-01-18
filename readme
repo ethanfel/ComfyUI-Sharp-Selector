@@ -1,22 +1,26 @@
-# ComfyUI Sharp Frame Selector
+# 🔪 ComfyUI Sharp Frame Selector
 
-A custom node for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) that automatically filters video frames to select only the sharpest ones.
+A suite of custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) designed to intelligently extract the sharpest frames from video footage. 
 
-This is a ComfyUI implementation of the logic found in [sharp-frames](https://github.com/Reflct/sharp-frames-python). It calculates the Laplacian variance of each frame to determine focus quality and selects the best candidates based on your chosen strategy.
+Based on the [sharp-frames](https://github.com/Reflct/sharp-frames-python) logic, this tool uses **Laplacian Variance** to score image clarity. It is optimized for high-resolution video processing using a **Sidechain Workflow** that saves massive amounts of RAM.
 
-## Features
+## ✨ Key Features
 
-- **No external CLI tools required**: Runs entirely within ComfyUI using OpenCV.
-- **Batched Selection**: Perfect for videos. Divides the timeline into chunks (e.g., every 1 second) and picks the single sharpest frame from that chunk. Ensures you never miss a scene.
-- **Best-N Selection**: Simply picks the top N sharpest frames from the entire batch, regardless of when they occur.
-- **GPU Efficient**: Keeps image data on the GPU where possible, only moving small batches to CPU for the sharpness calculation.
+* **Sidechain Optimization:** Analyze lightweight 512px proxy images to control the selection of heavy 4K raw frames.
+* **Batched Extraction:** Splits video into time slots (e.g., 1 second) and picks the single best frame from each slot. Perfect for ensuring action scenes are not missed.
+* **Threshold Filtering:** Automatically discards frames that are too blurry, even if they are the "winner" of their batch.
+* **Buffer Control:** Optional dead-zones between batches to reduce frame count or ensure temporal separation.
 
-## Installation
+---
 
-### Method 1: Manager (Recommended)
-If this node is available in the ComfyUI Manager, search for "Sharp Frame Selector" and install.
+## 🚀 Installation
 
-### Method 2: Manual
+### Option 1: ComfyUI Manager (Recommended)
+1.  Open ComfyUI Manager.
+2.  Search for **"Sharp Frame Selector"**.
+3.  Click **Install**.
+
+### Option 2: Manual Installation
 Clone this repository into your `custom_nodes` folder:
 
 ```bash
