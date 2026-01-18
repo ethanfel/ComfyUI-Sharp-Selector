@@ -5,14 +5,16 @@ app.registerExtension({
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
         if (nodeData.name === "SharpFrameSelector") {
             
-            // Define your tooltips here
             const tooltips = {
-                "selection_method": "Strategy:\n'batched' = 1 best frame per time slot (Good for video).\n'best_n' = Top N sharpest frames globally.",
-                "batch_size": "For 'batched' mode only.\nHow many frames to analyze at once.\nExample: 24fps video + batch 24 = 1 output frame per second.",
-                "num_frames": "For 'best_n' mode only.\nTotal number of frames you want to keep."
+                "selection_method": "Strategy:\n• 'batched': Best for video. Splits time into slots (Batch Size) and picks the winner.\n• 'best_n': Picks the absolute sharpest frames globally, ignoring time.",
+                
+                "batch_size": "For 'batched' mode only.\nDefines the size of the time slot.\nExample: 24fps video + batch 24 = 1 selected frame per second.",
+                
+                "num_frames": "For 'best_n' mode only.\nThe total quantity of frames you want to output.",
+                
+                "min_sharpness": "Threshold Filter.\nAny frame with a score lower than this is discarded immediately.\n\n⚠️ IMPORTANT: Scores depend on image size. \nIf you used the 'Sidechain' workflow (Resized Analyzer), scores will be much lower (e.g. 50 instead of 500)."
             };
 
-            // Hook into the node creation to apply them
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function () {
                 onNodeCreated?.apply(this, arguments);
