@@ -11,11 +11,13 @@ class ParallelSharpnessLoader:
         return {
             "required": {
                 "video_path": ("STRING", {"default": "C:\\path\\to\\video.mp4"}),
-                "scan_limit": ("INT", {"default": 1440, "min": 0, "step": 1, "label": "Max Frames to Scan (0=All)"}),
+                # scan_limit: 0 means ALL frames. Max set high to allow large user inputs.
+                "scan_limit": ("INT", {"default": 1440, "min": 0, "max": 10000000, "step": 1, "label": "Max Frames to Scan (0=All)"}),
                 "frame_scan_step": ("INT", {"default": 5, "min": 1, "step": 1, "label": "Analyze Every Nth Frame"}),
-                "return_count": ("INT", {"default": 4, "min": 1, "step": 1, "label": "Best Frames Count"}),
-                "min_distance": ("INT", {"default": 24, "min": 0, "step": 1, "label": "Min Distance (Frames)"}),
-                "skip_start": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "return_count": ("INT", {"default": 4, "min": 1, "max": 1024, "step": 1, "label": "Best Frames Count"}),
+                "min_distance": ("INT", {"default": 24, "min": 0, "max": 10000, "step": 1, "label": "Min Distance (Frames)"}),
+                # FIXED: Max limit increased to 10 million to prevent slider locking at 2048
+                "skip_start": ("INT", {"default": 0, "min": 0, "max": 10000000, "step": 1}),
             },
         }
 
@@ -24,7 +26,6 @@ class ParallelSharpnessLoader:
     FUNCTION = "load_video"
     CATEGORY = "BetaHelper/Video"
 
-    # Worker function for threading
     def calculate_sharpness(self, frame_data):
         gray = cv2.cvtColor(frame_data, cv2.COLOR_BGR2GRAY)
         return cv2.Laplacian(gray, cv2.CV_64F).var()
@@ -32,7 +33,6 @@ class ParallelSharpnessLoader:
     def load_video(self, video_path, scan_limit, frame_scan_step, return_count, min_distance, skip_start):
         # 1. Validation
         if not os.path.exists(video_path):
-            # Clean string to remove quotes if user pasted them
             video_path = video_path.strip('"')
         if not os.path.exists(video_path):
             raise FileNotFoundError(f"Video not found: {video_path}")
@@ -46,11 +46,11 @@ class ParallelSharpnessLoader:
         current_frame = skip_start
         scanned_count = 0
         
-        # Set start position
+        # Seek to start
         if skip_start > 0:
             cap.set(cv2.CAP_PROP_POS_FRAMES, skip_start)
 
-        # Thread Pool for high-speed calculation
+        # Thread Pool
         with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
             futures = []
             
@@ -61,12 +61,11 @@ class ParallelSharpnessLoader:
                 ret, frame = cap.read()
                 if not ret: break 
 
-                # Send to thread
                 future = executor.submit(self.calculate_sharpness, frame)
                 futures.append((current_frame, future))
                 scanned_count += 1
                 
-                # Manual Stepping (Skip N frames without decoding if possible)
+                # Manual Stepping
                 if frame_scan_step > 1:
                     for _ in range(frame_scan_step - 1):
                         if not cap.grab(): break
@@ -80,14 +79,13 @@ class ParallelSharpnessLoader:
 
         cap.release()
 
-        # 3. Selection (Best N with spacing)
+        # 3. Selection
         frame_scores.sort(key=lambda x: x[1], reverse=True)
         selected = []
         
         for idx, score in frame_scores:
             if len(selected) >= return_count: break
             
-            # Distance check
             if all(abs(s[0] - idx) >= min_distance for s in selected):
                 selected.append((idx, score))
 
@@ -95,7 +93,7 @@ class ParallelSharpnessLoader:
         selected.sort(key=lambda x: x[0])
         print(f"xx- Selected Frames: {[f[0] for f in selected]}")
 
-        # 4. Extraction (Pass 2 - Load Images)
+        # 4. Extraction (Pass 2)
         cap = cv2.VideoCapture(video_path)
         output_tensors = []
         info_log = []
@@ -116,8 +114,6 @@ class ParallelSharpnessLoader:
 
         return (torch.stack(output_tensors), ", ".join(info_log))
 
-# --- Registration ---
-# This part makes ComfyUI see the node
 NODE_CLASS_MAPPINGS = {
     "ParallelSharpnessLoader": ParallelSharpnessLoader
 }
