@@ -7,9 +7,7 @@ This pack includes two distinct approaches:
 2. **Standard Sharpness Duo:** A classic filter setup for processing images/latents *inside* your existing workflow.
 
 ---
-<p align="center">
-  <img src="assets/nodes.png" alt="Nodes Diagram" width="500"/>
-</p>
+![Nodes Diagram](assets/nodes.png)
 ---
 
 ## 🚀 Key Features
