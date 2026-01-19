@@ -1,5 +1,6 @@
 from .sharp_node import SharpnessAnalyzer, SharpFrameSelector
 from .parallel_loader import ParallelSharpnessLoader
+from .fast_saver import FastAbsoluteSaver  # <--- Added this missing import
 
 NODE_CLASS_MAPPINGS = {
     "SharpnessAnalyzer": SharpnessAnalyzer,
