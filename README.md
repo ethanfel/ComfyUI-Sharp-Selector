@@ -2,9 +2,9 @@
 
 A high-performance custom node suite for **ComfyUI** designed to detect blur, calculate sharpness scores (Laplacian Variance), and efficiently extract or filter the best frames from videos and image batches.
 
-This pack solves two major problems in AI video workflows:
+This pack is for a personnal project:
 1. **Dataset Creation:** Extracting only the sharpest frames from massive movie files without crashing RAM.
-2. **Generation Filtering:** Automatically discarding blurry frames from AnimateDiff or img2img outputs.
+2. **Generation Filtering:** Automatically discarding blurry frames from Wan or img2img outputs.
 
 ---
 ![node](assets/nodes.png)
