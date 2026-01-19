@@ -15,9 +15,21 @@ class FastAbsoluteSaver:
                 "images": ("IMAGE", ),
                 "output_path": ("STRING", {"default": "D:\\Datasets\\Sharp_Output"}),
                 "filename_prefix": ("STRING", {"default": "frame"}),
-                "metadata_key": ("STRING", {"default": "sharpness_score"}),
-                # NEW: Boolean Switch
+                
+                # --- FORMAT SWITCH ---
+                "save_format": (["png", "webp"], ),
+                
+                # --- PERFORMANCE ---
+                "max_threads": ("INT", {"default": 0, "min": 0, "max": 128, "step": 1, "label": "Max Threads (0=Auto)"}),
+
+                # --- COMMON OPTIONS ---
                 "filename_with_score": ("BOOLEAN", {"default": False, "label": "Append Score to Filename"}),
+                "metadata_key": ("STRING", {"default": "sharpness_score"}),
+
+                # --- WEBP SPECIFIC ---
+                "webp_lossless": ("BOOLEAN", {"default": True, "label": "WebP Lossless"}),
+                "webp_quality": ("INT", {"default": 100, "min": 0, "max": 100, "step": 1, "label": "WebP Quality (-q)"}),
+                "webp_method": ("INT", {"default": 4, "min": 0, "max": 6, "step": 1, "label": "WebP Compression (-z)"}),
             },
             "optional": {
                 "scores_info": ("STRING", {"forceInput": True}),
@@ -30,17 +42,12 @@ class FastAbsoluteSaver:
     CATEGORY = "BetaHelper/IO"
 
     def parse_info(self, info_str, batch_size):
-        """
-        Extracts both Frame Indices AND Scores.
-        """
         if not info_str:
             return ([0]*batch_size, [0.0]*batch_size)
 
         matches = re.findall(r"F:(\d+).*?Score:\s*(\d+(\.\d+)?)", info_str)
-        
         frames = []
         scores = []
-        
         for m in matches:
             try:
                 frames.append(int(m[0]))       
@@ -55,22 +62,30 @@ class FastAbsoluteSaver:
             
         return frames[:batch_size], scores[:batch_size]
 
-    def save_single_image(self, tensor_img, full_path, score, key_name):
+    def save_single_image(self, tensor_img, full_path, score, key_name, fmt, lossless, quality, method):
         try:
             array = 255. * tensor_img.cpu().numpy()
             img = Image.fromarray(np.clip(array, 0, 255).astype(np.uint8))
             
-            metadata = PngInfo()
-            metadata.add_text(key_name, str(score))
-            metadata.add_text("software", "ComfyUI_Parallel_Node")
-
-            img.save(full_path, pnginfo=metadata, compress_level=1) 
+            if fmt == "png":
+                metadata = PngInfo()
+                metadata.add_text(key_name, str(score))
+                metadata.add_text("software", "ComfyUI_Parallel_Node")
+                img.save(full_path, format="PNG", pnginfo=metadata, compress_level=1)
+            
+            elif fmt == "webp":
+                img.save(full_path, format="WEBP", 
+                         lossless=lossless, 
+                         quality=quality, 
+                         method=method) 
+            
             return True
         except Exception as e:
             print(f"xx- Error saving {full_path}: {e}")
             return False
 
-    def save_images_fast(self, images, output_path, filename_prefix, metadata_key, filename_with_score, scores_info=None):
+    def save_images_fast(self, images, output_path, filename_prefix, save_format, max_threads, 
+                         filename_with_score, metadata_key, webp_lossless, webp_quality, webp_method, scores_info=None):
         
         output_path = output_path.strip('"')
         if not os.path.exists(output_path):
@@ -79,12 +94,20 @@ class FastAbsoluteSaver:
             except OSError:
                 raise ValueError(f"Could not create directory: {output_path}")
 
+        # --- AUTO-SCALING LOGIC ---
+        if max_threads == 0:
+            # os.cpu_count() returns None on some rare systems, so we default to 4 just in case
+            cpu_cores = os.cpu_count() or 4
+            # For WebP (CPU intensive), stick to core count. 
+            # For PNG (Disk intensive), we could technically go higher, but core count is safe.
+            max_threads = cpu_cores
+        
+        print(f"xx- FastSaver: Using {max_threads} Threads for saving.")
+
         batch_size = len(images)
         frame_indices, scores_list = self.parse_info(scores_info, batch_size)
 
-        print(f"xx- FastSaver: Saving {batch_size} images to {output_path}...")
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
             futures = []
             
             for i, img_tensor in enumerate(images):
@@ -92,21 +115,29 @@ class FastAbsoluteSaver:
                 real_frame_num = frame_indices[i]
                 current_score = scores_list[i]
                 
-                # BASE NAME: frame_001450
                 base_name = f"{filename_prefix}_{real_frame_num:06d}"
 
-                # OPTION: Append Score -> frame_001450_1500
                 if filename_with_score:
                     base_name += f"_{int(current_score)}"
 
-                # FALLBACK for missing data
                 if real_frame_num == 0 and scores_info is None:
                     base_name = f"{filename_prefix}_{int(time.time())}_{i:03d}"
 
-                fname = f"{base_name}.png"
+                ext = ".webp" if save_format == "webp" else ".png"
+                fname = f"{base_name}{ext}"
                 full_path = os.path.join(output_path, fname)
                 
-                futures.append(executor.submit(self.save_single_image, img_tensor, full_path, current_score, metadata_key))
+                futures.append(executor.submit(
+                    self.save_single_image, 
+                    img_tensor, 
+                    full_path, 
+                    current_score, 
+                    metadata_key,
+                    save_format,
+                    webp_lossless,
+                    webp_quality,
+                    webp_method
+                ))
 
             concurrent.futures.wait(futures)
 
