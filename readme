@@ -1,29 +1,30 @@
 # 🔪 ComfyUI Sharp Frame Selector
 
-A suite of custom nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) designed to intelligently extract the sharpest frames from video footage. 
+A collection of high-performance custom nodes for **ComfyUI** designed to detect blur, calculate sharpness scores, and automatically extract the best frames from videos or image batches. 
 
-Based on the [sharp-frames](https://github.com/Reflct/sharp-frames-python) logic, this tool uses **Laplacian Variance** to score image clarity. It is optimized for high-resolution video processing using a **Sidechain Workflow** that saves massive amounts of RAM.
-
-## ✨ Key Features
-
-* **Sidechain Optimization:** Analyze lightweight 512px proxy images to control the selection of heavy 4K raw frames.
-* **Batched Extraction:** Splits video into time slots (e.g., 1 second) and picks the single best frame from each slot. Perfect for ensuring action scenes are not missed.
-* **Threshold Filtering:** Automatically discards frames that are too blurry, even if they are the "winner" of their batch.
-* **Buffer Control:** Optional dead-zones between batches to reduce frame count or ensure temporal separation.
+This pack includes two distinct approaches:
+1. **Parallel Video Loader:** A multi-threaded, path-based loader for processing massive video files directly from disk (Low RAM usage).
+2. **Standard Sharpness Duo:** A classic filter setup for processing images/latents *inside* your existing workflow.
 
 ---
 
-## 🚀 Installation
+## 🚀 Key Features
 
-### Option 1: ComfyUI Manager (Recommended)
-1.  Open ComfyUI Manager.
-2.  Search for **"Sharp Frame Selector"**.
-3.  Click **Install**.
+### 1. New: Parallel Video Loader (Path-Based)
+* **Zero-RAM Scanning:** Scans video files directly from disk without decoding every frame to memory.
+* **Multi-Threaded:** Uses all CPU cores to calculate sharpness scores at high speed.
+* **Batching Support:** Includes a "Page" system to process long movies in chunks (e.g., minute-by-minute) without restarting ComfyUI.
+* **Smart Selection:** Automatically skips "adjacent" frames to ensure you get a diverse selection of sharp images.
 
-### Option 2: Manual Installation
-Clone this repository into your `custom_nodes` folder:
+### 2. Standard Sharpness Duo (Tensor-Based)
+* **Workflow Integration:** Works with any node that outputs an `IMAGE` batch (e.g., AnimateDiff, VideoHelperSuite).
+* **Precision Filtering:** Sorts and filters generated frames before saving or passing to a second pass (img2img).
 
-```bash
-cd ComfyUI/custom_nodes/
-git clone [https://github.com/YOUR_USERNAME/ComfyUI-Sharp-Selector.git](https://github.com/YOUR_USERNAME/ComfyUI-Sharp-Selector.git)
-pip install -r ComfyUI-Sharp-Selector/requirements.txt
+---
+
+## 📦 Installation
+
+1. Clone this repository into your `custom_nodes` folder:
+   ```bash
+   cd ComfyUI/custom_nodes/
+   git clone [https://github.com/ethanfel/ComfyUI-Sharp-Selector.git](https://github.com/ethanfel/ComfyUI-Sharp-Selector.git)
