@@ -27,4 +27,4 @@ This pack includes two distinct approaches:
 1. Clone this repository into your `custom_nodes` folder:
    ```bash
    cd ComfyUI/custom_nodes/
-   git clone [https://github.com/ethanfel/ComfyUI-Sharp-Selector.git](https://github.com/ethanfel/ComfyUI-Sharp-Selector.git)
+   git clone https://github.com/ethanfel/ComfyUI-Sharp-Selector.git
