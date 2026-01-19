@@ -1,13 +1,16 @@
 from .sharp_node import SharpnessAnalyzer, SharpFrameSelector
+from .parallel_loader import ParallelSharpnessLoader
 
 NODE_CLASS_MAPPINGS = {
     "SharpnessAnalyzer": SharpnessAnalyzer,
-    "SharpFrameSelector": SharpFrameSelector
+    "SharpFrameSelector": SharpFrameSelector,
+    "ParallelSharpnessLoader": ParallelSharpnessLoader
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "SharpnessAnalyzer": "1. Sharpness Analyzer",
-    "SharpFrameSelector": "2. Sharp Frame Selector"
+    "SharpFrameSelector": "2. Sharp Frame Selector",
+    "ParallelSharpnessLoader": "3. Parallel Video Loader (Sharpness)"
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
