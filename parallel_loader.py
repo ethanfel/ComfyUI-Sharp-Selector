@@ -23,7 +23,6 @@ class ParallelSharpnessLoader:
             },
         }
 
-    # Added a 4th output: STRING (The status sentence)
     RETURN_TYPES = ("IMAGE", "STRING", "INT", "STRING")
     RETURN_NAMES = ("images", "scores_info", "batch_int", "batch_status")
     FUNCTION = "load_video"
@@ -45,17 +44,17 @@ class ParallelSharpnessLoader:
         current_skip = (batch_index * scan_limit) + manual_skip_start
         range_end = current_skip + scan_limit
         
-        # Create the Status String
         status_msg = f"Batch {batch_index}: Skipped {current_skip} frames. Scanning range {current_skip} -> {range_end}."
         print(f"xx- Parallel Loader | {status_msg}")
 
         cap = cv2.VideoCapture(video_path)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
+        # --- STOP CONDITION 1: REACHED END OF VIDEO ---
+        # This stops the queue immediately if we try to read past the end.
         if current_skip >= total_frames:
-             print("xx- End of video reached.")
-             empty_img = torch.zeros((1, 64, 64, 3))
-             return (empty_img, "End of Video", batch_index, "End of Video Reached")
+             cap.release()
+             raise ValueError(f"Processing Complete. Batch {batch_index} starts at frame {current_skip}, but video only has {total_frames} frames.")
 
         # 3. Scanning (Pass 1)
         if current_skip > 0:
@@ -93,8 +92,9 @@ class ParallelSharpnessLoader:
         cap.release()
 
         # 4. Selection
+        # --- STOP CONDITION 2: NO FRAMES FOUND ---
         if not frame_scores:
-             return (torch.zeros((1, 64, 64, 3)), "No frames in batch", batch_index, status_msg + " (No frames found)")
+             raise ValueError(f"No frames found in batch {batch_index} (Range {current_skip}-{range_end}). The video might be corrupted or blank.")
 
         frame_scores.sort(key=lambda x: x[1], reverse=True)
         selected = []
@@ -123,7 +123,6 @@ class ParallelSharpnessLoader:
         cap.release()
 
         if not output_tensors:
-             return (torch.zeros((1, 64, 64, 3)), "Extraction Failed", batch_index, status_msg)
+             raise ValueError("Frames were selected but could not be loaded. This indicates a file read error.")
 
-        # Return all 4 outputs
         return (torch.stack(output_tensors), ", ".join(info_log), batch_index, status_msg)
