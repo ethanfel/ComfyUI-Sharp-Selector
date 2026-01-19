@@ -7,6 +7,8 @@ This pack solves two major problems in AI video workflows:
 2. **Generation Filtering:** Automatically discarding blurry frames from AnimateDiff or img2img outputs.
 
 ---
+![node](assets/nodes.png)
+---
 
 ## 🚀 Key Features
 
