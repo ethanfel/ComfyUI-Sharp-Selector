@@ -19,17 +19,21 @@ class FastAbsoluteSaver:
                 # --- FORMAT SWITCH ---
                 "save_format": (["png", "webp"], ),
                 
+                # --- NAMING CONTROL ---
+                "use_timestamp": ("BOOLEAN", {"default": True, "label": "Add Timestamp (Unique)"}),
+                "counter_digits": ("INT", {"default": 3, "min": 1, "max": 12, "step": 1, "label": "Number Padding (00X)"}),
+                "filename_with_score": ("BOOLEAN", {"default": False, "label": "Append Score to Filename"}),
+
                 # --- PERFORMANCE ---
                 "max_threads": ("INT", {"default": 0, "min": 0, "max": 128, "step": 1, "label": "Max Threads (0=Auto)"}),
 
-                # --- COMMON OPTIONS ---
-                "filename_with_score": ("BOOLEAN", {"default": False, "label": "Append Score to Filename"}),
+                # --- METADATA ---
                 "metadata_key": ("STRING", {"default": "sharpness_score"}),
 
                 # --- WEBP SPECIFIC ---
                 "webp_lossless": ("BOOLEAN", {"default": True, "label": "WebP Lossless"}),
-                "webp_quality": ("INT", {"default": 100, "min": 0, "max": 100, "step": 1, "label": "WebP Quality (-q)"}),
-                "webp_method": ("INT", {"default": 4, "min": 0, "max": 6, "step": 1, "label": "WebP Compression (-z)"}),
+                "webp_quality": ("INT", {"default": 100, "min": 0, "max": 100, "step": 1}),
+                "webp_method": ("INT", {"default": 4, "min": 0, "max": 6, "step": 1}),
             },
             "optional": {
                 "scores_info": ("STRING", {"forceInput": True}),
@@ -84,8 +88,8 @@ class FastAbsoluteSaver:
             print(f"xx- Error saving {full_path}: {e}")
             return False
 
-    def save_images_fast(self, images, output_path, filename_prefix, save_format, max_threads, 
-                         filename_with_score, metadata_key, webp_lossless, webp_quality, webp_method, scores_info=None):
+    def save_images_fast(self, images, output_path, filename_prefix, save_format, use_timestamp, counter_digits, 
+                         max_threads, filename_with_score, metadata_key, webp_lossless, webp_quality, webp_method, scores_info=None):
         
         output_path = output_path.strip('"')
         if not os.path.exists(output_path):
@@ -94,49 +98,50 @@ class FastAbsoluteSaver:
             except OSError:
                 raise ValueError(f"Could not create directory: {output_path}")
 
-        # --- AUTO-SCALING LOGIC ---
         if max_threads == 0:
-            # os.cpu_count() returns None on some rare systems, so we default to 4 just in case
-            cpu_cores = os.cpu_count() or 4
-            # For WebP (CPU intensive), stick to core count. 
-            # For PNG (Disk intensive), we could technically go higher, but core count is safe.
-            max_threads = cpu_cores
+            max_threads = os.cpu_count() or 4
         
-        print(f"xx- FastSaver: Using {max_threads} Threads for saving.")
-
         batch_size = len(images)
         frame_indices, scores_list = self.parse_info(scores_info, batch_size)
+        
+        # Pre-calculate timestamp once for the whole batch if needed
+        ts_str = f"_{int(time.time())}" if use_timestamp else ""
 
+        print(f"xx- FastSaver: Saving {batch_size} images to {output_path}...")
+        
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
             futures = []
             
             for i, img_tensor in enumerate(images):
-                
                 real_frame_num = frame_indices[i]
                 current_score = scores_list[i]
                 
-                base_name = f"{filename_prefix}_{real_frame_num:06d}"
+                # Logic: If we have real frame numbers (from Loader), use them.
+                # If NOT (or if frame is 0), use the loop index 'i' (0, 1, 2...)
+                if real_frame_num > 0:
+                    number_part = real_frame_num
+                else:
+                    number_part = i
+
+                # Format string using dynamic padding size (e.g. :05d)
+                fmt_str = f"{{:0{counter_digits}d}}"
+                number_str = fmt_str.format(number_part)
+
+                # Construct Name: prefix + timestamp + number
+                # Case 1: frame_173000_001.png (Timestamp ON)
+                # Case 2: frame_001.png (Timestamp OFF)
+                base_name = f"{filename_prefix}{ts_str}_{number_str}"
 
                 if filename_with_score:
                     base_name += f"_{int(current_score)}"
 
-                if real_frame_num == 0 and scores_info is None:
-                    base_name = f"{filename_prefix}_{int(time.time())}_{i:03d}"
-
                 ext = ".webp" if save_format == "webp" else ".png"
-                fname = f"{base_name}{ext}"
-                full_path = os.path.join(output_path, fname)
+                full_path = os.path.join(output_path, f"{base_name}{ext}")
                 
                 futures.append(executor.submit(
                     self.save_single_image, 
-                    img_tensor, 
-                    full_path, 
-                    current_score, 
-                    metadata_key,
-                    save_format,
-                    webp_lossless,
-                    webp_quality,
-                    webp_method
+                    img_tensor, full_path, current_score, metadata_key,
+                    save_format, webp_lossless, webp_quality, webp_method
                 ))
 
             concurrent.futures.wait(futures)
