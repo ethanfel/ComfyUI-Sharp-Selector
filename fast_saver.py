@@ -1,4 +1,6 @@
 import os
+import sys
+import platform
 import torch
 import numpy as np
 from PIL import Image, ExifTags
@@ -8,6 +10,97 @@ import re
 import time
 import glob
 import json
+import subprocess
+import shutil
+import stat
+import urllib.request
+import zipfile
+import tarfile
+
+_NODE_DIR = os.path.dirname(os.path.abspath(__file__))
+_FFMPEG_DIR = os.path.join(_NODE_DIR, "ffmpeg_bin")
+
+
+def _get_ffmpeg():
+    """Find or download a ffmpeg binary. Search order:
+    1. Bundled binary in this node's ffmpeg_bin/ folder
+    2. imageio_ffmpeg (shipped by VideoHelperSuite)
+    3. System PATH
+    4. Auto-download a static build into ffmpeg_bin/
+    """
+    system = platform.system()
+    exe_name = "ffmpeg.exe" if system == "Windows" else "ffmpeg"
+    local_bin = os.path.join(_FFMPEG_DIR, exe_name)
+
+    # 1. Already downloaded
+    if os.path.isfile(local_bin):
+        return local_bin
+
+    # 2. imageio_ffmpeg
+    try:
+        import imageio_ffmpeg
+        path = imageio_ffmpeg.get_ffmpeg_exe()
+        if path and os.path.isfile(path):
+            return path
+    except Exception:
+        pass
+
+    # 3. System PATH
+    system_bin = shutil.which("ffmpeg")
+    if system_bin:
+        return system_bin
+
+    # 4. Auto-download static build
+    print("xx- FastSaver: ffmpeg not found. Downloading static build...")
+    os.makedirs(_FFMPEG_DIR, exist_ok=True)
+
+    urls = {
+        ("Linux", "x86_64"):  "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
+        ("Linux", "aarch64"): "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz",
+        ("Windows", "AMD64"): "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+    }
+
+    machine = platform.machine()
+    key = (system, machine)
+    url = urls.get(key)
+    if not url:
+        raise RuntimeError(
+            f"No automatic ffmpeg download available for {system}/{machine}. "
+            f"Please install ffmpeg manually or place a binary in {_FFMPEG_DIR}"
+        )
+
+    archive_path = os.path.join(_FFMPEG_DIR, "ffmpeg_archive")
+    try:
+        urllib.request.urlretrieve(url, archive_path)
+
+        if url.endswith(".tar.xz"):
+            with tarfile.open(archive_path, "r:xz") as tar:
+                for member in tar.getmembers():
+                    if member.name.endswith("/ffmpeg") and member.isfile():
+                        member.name = exe_name
+                        tar.extract(member, _FFMPEG_DIR)
+                        break
+        elif url.endswith(".zip"):
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                for name in zf.namelist():
+                    if name.endswith("bin/ffmpeg.exe"):
+                        data = zf.read(name)
+                        with open(local_bin, "wb") as f:
+                            f.write(data)
+                        break
+    finally:
+        if os.path.exists(archive_path):
+            os.remove(archive_path)
+
+    if not os.path.isfile(local_bin):
+        raise RuntimeError(f"Failed to extract ffmpeg to {local_bin}")
+
+    # Make executable on Linux/Mac
+    if system != "Windows":
+        os.chmod(local_bin, os.stat(local_bin).st_mode | stat.S_IEXEC)
+
+    print(f"xx- FastSaver: ffmpeg downloaded to {local_bin}")
+    return local_bin
 
 class FastAbsoluteSaver:
     @classmethod
@@ -19,7 +112,7 @@ class FastAbsoluteSaver:
                 "filename_prefix": ("STRING", {"default": "frame"}),
                 
                 # --- FORMAT SWITCH ---
-                "save_format": (["png", "webp"], ),
+                "save_format": (["png", "webp", "mp4", "webm"], ),
                 
                 # --- NAMING CONTROL ---
                 "use_timestamp": ("BOOLEAN", {"default": False, "label": "Add Timestamp (Unique)"}),
@@ -38,6 +131,11 @@ class FastAbsoluteSaver:
                 "webp_lossless": ("BOOLEAN", {"default": True, "label": "WebP Lossless"}),
                 "webp_quality": ("INT", {"default": 100, "min": 0, "max": 100, "step": 1}),
                 "webp_method": ("INT", {"default": 4, "min": 0, "max": 6, "step": 1}),
+
+                # --- VIDEO SPECIFIC ---
+                "video_fps": ("INT", {"default": 24, "min": 1, "max": 120, "step": 1, "label": "Video FPS"}),
+                "video_crf": ("INT", {"default": 18, "min": 0, "max": 51, "step": 1, "label": "Video CRF (0=Lossless, 51=Worst)"}),
+                "video_pixel_format": (["yuv420p", "yuv444p"], {"label": "Pixel Format"}),
             },
             "optional": {
                 "scores_info": ("STRING", {"forceInput": True}),
@@ -162,9 +260,60 @@ class FastAbsoluteSaver:
             print(f"xx- Error saving {full_path}: {e}")
             return False
 
-    def save_images_fast(self, images, output_path, filename_prefix, save_format, use_timestamp, auto_increment, counter_digits, 
+    def save_video(self, images, output_path, filename_prefix, use_timestamp, fps, crf, pixel_format, video_format):
+        """Save image batch as a video file using ffmpeg."""
+        ffmpeg_path = _get_ffmpeg()
+
+        ts_str = f"_{int(time.time())}" if use_timestamp else ""
+        ext = ".mp4" if video_format == "mp4" else ".webm"
+        out_file = os.path.join(output_path, f"{filename_prefix}{ts_str}{ext}")
+
+        batch_size = len(images)
+        h, w = images[0].shape[0], images[0].shape[1]
+
+        if video_format == "mp4":
+            codec = "libx264"
+            cmd = [
+                ffmpeg_path, "-y",
+                "-f", "rawvideo", "-pix_fmt", "rgb24",
+                "-s", f"{w}x{h}", "-r", str(fps),
+                "-i", "-",
+                "-c:v", codec, "-crf", str(crf),
+                "-pix_fmt", pixel_format,
+                "-movflags", "+faststart",
+                out_file
+            ]
+        else:  # webm
+            codec = "libvpx-vp9"
+            cmd = [
+                ffmpeg_path, "-y",
+                "-f", "rawvideo", "-pix_fmt", "rgb24",
+                "-s", f"{w}x{h}", "-r", str(fps),
+                "-i", "-",
+                "-c:v", codec, "-crf", str(crf), "-b:v", "0",
+                "-pix_fmt", pixel_format,
+                out_file
+            ]
+
+        print(f"xx- FastSaver: Encoding {batch_size} frames to {out_file} ({codec}, crf={crf}, {fps}fps)...")
+
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        for img_tensor in images:
+            frame = (255.0 * img_tensor.cpu().numpy()).clip(0, 255).astype(np.uint8)
+            proc.stdin.write(frame.tobytes())
+        proc.stdin.close()
+        _, stderr = proc.communicate()
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg failed: {stderr.decode()}")
+
+        print(f"xx- FastSaver: Video saved to {out_file}")
+        return out_file
+
+    def save_images_fast(self, images, output_path, filename_prefix, save_format, use_timestamp, auto_increment, counter_digits,
                          max_threads, filename_with_score, metadata_key, save_workflow_metadata,
-                         webp_lossless, webp_quality, webp_method, 
+                         webp_lossless, webp_quality, webp_method,
+                         video_fps, video_crf, video_pixel_format,
                          scores_info=None, prompt=None, extra_pnginfo=None):
         
         output_path = output_path.strip('"')
@@ -187,10 +336,16 @@ class FastAbsoluteSaver:
         if auto_increment and not use_timestamp and not using_real_frames:
             start_counter = self.get_start_index(output_path, filename_prefix)
 
+        # --- VIDEO PATH ---
+        if save_format in ("mp4", "webm"):
+            self.save_video(images, output_path, filename_prefix, use_timestamp,
+                            video_fps, video_crf, video_pixel_format, save_format)
+            return {"ui": {"images": []}}
+
         ts_str = f"_{int(time.time())}" if use_timestamp else ""
 
         print(f"xx- FastSaver: Saving {batch_size} images to {output_path}...")
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
             futures = []
             
