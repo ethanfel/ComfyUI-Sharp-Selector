@@ -314,11 +314,15 @@ class FastAbsoluteSaver:
         print(f"xx- FastSaver: Encoding {batch_size} frames to {out_file} ({codec}, crf={crf}, {fps}fps)...")
 
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-        for img_tensor in images:
-            frame = (255.0 * img_tensor.cpu().numpy()).clip(0, 255).astype(np.uint8)
-            proc.stdin.write(frame.tobytes())
-        proc.stdin.close()
-        _, stderr = proc.communicate()
+        try:
+            for img_tensor in images:
+                frame = (255.0 * img_tensor.cpu().numpy()).clip(0, 255).astype(np.uint8)
+                proc.stdin.write(frame.tobytes())
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+        stderr = proc.stderr.read()
+        proc.wait()
 
         if proc.returncode != 0:
             raise RuntimeError(f"ffmpeg failed: {stderr.decode()}")
