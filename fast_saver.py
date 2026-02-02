@@ -13,6 +13,7 @@ import json
 import subprocess
 import shutil
 import stat
+import tempfile
 import urllib.request
 import zipfile
 import tarfile
@@ -272,22 +273,30 @@ class FastAbsoluteSaver:
         batch_size = len(images)
         h, w = images[0].shape[0], images[0].shape[1]
 
-        # --- BUILD METADATA FLAGS ---
-        meta_flags = []
+        # --- BUILD METADATA FILE (avoids arg-too-long for large workflows) ---
+        meta_lines = [";FFMETADATA1"]
+        meta_lines.append("software=ComfyUI_FastAbsoluteSaver")
+
         if scores_list:
             avg_score = sum(scores_list) / len(scores_list)
-            meta_flags += ["-metadata", f"{metadata_key}_avg={avg_score:.2f}"]
-            meta_flags += ["-metadata", f"{metadata_key}_all={','.join(f'{s:.2f}' for s in scores_list)}"]
+            meta_lines.append(f"{metadata_key}_avg={avg_score:.2f}")
+            meta_lines.append(f"{metadata_key}_all={','.join(f'{s:.2f}' for s in scores_list)}")
 
         if save_workflow:
             if prompt_data:
-                meta_flags += ["-metadata", f"prompt={json.dumps(prompt_data)}"]
+                # Escape ffmetadata special chars: =, ;, #, \ and newlines
+                prompt_str = json.dumps(prompt_data).replace("\\", "\\\\").replace("=", "\\=").replace(";", "\\;").replace("#", "\\#").replace("\n", "\\\n")
+                meta_lines.append(f"prompt={prompt_str}")
             if extra_data:
                 workflow = extra_data.get("workflow", {})
                 if workflow:
-                    meta_flags += ["-metadata", f"workflow={json.dumps(workflow)}"]
+                    workflow_str = json.dumps(workflow).replace("\\", "\\\\").replace("=", "\\=").replace(";", "\\;").replace("#", "\\#").replace("\n", "\\\n")
+                    meta_lines.append(f"workflow={workflow_str}")
 
-        meta_flags += ["-metadata", "software=ComfyUI_FastAbsoluteSaver"]
+        self._meta_tmpfile = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
+        self._meta_tmpfile.write("\n".join(meta_lines))
+        self._meta_tmpfile.close()
+        meta_file = self._meta_tmpfile.name
 
         if video_format == "mp4":
             codec = "libx264"
@@ -296,10 +305,12 @@ class FastAbsoluteSaver:
                 "-f", "rawvideo", "-pix_fmt", "rgb24",
                 "-s", f"{w}x{h}", "-r", str(fps),
                 "-i", "-",
+                "-i", meta_file, "-map_metadata", "1",
                 "-c:v", codec, "-crf", str(crf),
                 "-pix_fmt", pixel_format,
                 "-movflags", "+faststart",
-            ] + meta_flags + [out_file]
+                out_file
+            ]
         else:  # webm
             codec = "libvpx-vp9"
             cmd = [
@@ -307,9 +318,11 @@ class FastAbsoluteSaver:
                 "-f", "rawvideo", "-pix_fmt", "rgb24",
                 "-s", f"{w}x{h}", "-r", str(fps),
                 "-i", "-",
+                "-i", meta_file, "-map_metadata", "1",
                 "-c:v", codec, "-crf", str(crf), "-b:v", "0",
                 "-pix_fmt", pixel_format,
-            ] + meta_flags + [out_file]
+                out_file
+            ]
 
         print(f"xx- FastSaver: Encoding {batch_size} frames to {out_file} ({codec}, crf={crf}, {fps}fps)...")
 
@@ -323,6 +336,12 @@ class FastAbsoluteSaver:
             pass
         stderr = proc.stderr.read()
         proc.wait()
+
+        # Clean up metadata temp file
+        try:
+            os.remove(meta_file)
+        except OSError:
+            pass
 
         if proc.returncode != 0:
             raise RuntimeError(f"ffmpeg failed: {stderr.decode()}")
