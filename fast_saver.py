@@ -260,7 +260,8 @@ class FastAbsoluteSaver:
             print(f"xx- Error saving {full_path}: {e}")
             return False
 
-    def save_video(self, images, output_path, filename_prefix, use_timestamp, fps, crf, pixel_format, video_format):
+    def save_video(self, images, output_path, filename_prefix, use_timestamp, fps, crf, pixel_format, video_format,
+                   scores_list=None, metadata_key="sharpness_score", save_workflow=False, prompt_data=None, extra_data=None):
         """Save image batch as a video file using ffmpeg."""
         ffmpeg_path = _get_ffmpeg()
 
@@ -270,6 +271,23 @@ class FastAbsoluteSaver:
 
         batch_size = len(images)
         h, w = images[0].shape[0], images[0].shape[1]
+
+        # --- BUILD METADATA FLAGS ---
+        meta_flags = []
+        if scores_list:
+            avg_score = sum(scores_list) / len(scores_list)
+            meta_flags += ["-metadata", f"{metadata_key}_avg={avg_score:.2f}"]
+            meta_flags += ["-metadata", f"{metadata_key}_all={','.join(f'{s:.2f}' for s in scores_list)}"]
+
+        if save_workflow:
+            if prompt_data:
+                meta_flags += ["-metadata", f"prompt={json.dumps(prompt_data)}"]
+            if extra_data:
+                workflow = extra_data.get("workflow", {})
+                if workflow:
+                    meta_flags += ["-metadata", f"workflow={json.dumps(workflow)}"]
+
+        meta_flags += ["-metadata", "software=ComfyUI_FastAbsoluteSaver"]
 
         if video_format == "mp4":
             codec = "libx264"
@@ -281,8 +299,7 @@ class FastAbsoluteSaver:
                 "-c:v", codec, "-crf", str(crf),
                 "-pix_fmt", pixel_format,
                 "-movflags", "+faststart",
-                out_file
-            ]
+            ] + meta_flags + [out_file]
         else:  # webm
             codec = "libvpx-vp9"
             cmd = [
@@ -292,8 +309,7 @@ class FastAbsoluteSaver:
                 "-i", "-",
                 "-c:v", codec, "-crf", str(crf), "-b:v", "0",
                 "-pix_fmt", pixel_format,
-                out_file
-            ]
+            ] + meta_flags + [out_file]
 
         print(f"xx- FastSaver: Encoding {batch_size} frames to {out_file} ({codec}, crf={crf}, {fps}fps)...")
 
@@ -339,7 +355,10 @@ class FastAbsoluteSaver:
         # --- VIDEO PATH ---
         if save_format in ("mp4", "webm"):
             self.save_video(images, output_path, filename_prefix, use_timestamp,
-                            video_fps, video_crf, video_pixel_format, save_format)
+                            video_fps, video_crf, video_pixel_format, save_format,
+                            scores_list=scores_list, metadata_key=metadata_key,
+                            save_workflow=save_workflow_metadata, prompt_data=prompt,
+                            extra_data=extra_pnginfo)
             return {"ui": {"images": []}}
 
         ts_str = f"_{int(time.time())}" if use_timestamp else ""
