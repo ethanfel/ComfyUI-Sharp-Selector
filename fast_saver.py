@@ -152,14 +152,15 @@ class FastAbsoluteSaver:
 
     def parse_info(self, info_str, batch_size):
         if not info_str:
-            return ([0]*batch_size, [0.0]*batch_size)
+            # No scores connected - return None for scores to indicate "not provided"
+            return ([0]*batch_size, None)
         matches = re.findall(r"F:(\d+).*?Score:\s*(\d+(\.\d+)?)", info_str)
         frames = []
         scores = []
         for m in matches:
             try:
-                frames.append(int(m[0]))       
-                scores.append(float(m[1]))     
+                frames.append(int(m[0]))
+                scores.append(float(m[1]))
             except ValueError:
                 pass
         if len(frames) < batch_size:
@@ -200,9 +201,10 @@ class FastAbsoluteSaver:
             meta_png = PngInfo()
             exif_bytes = None
 
-            # 1. Custom Score Metadata
+            # 1. Custom Score Metadata (only if score was actually provided)
             if fmt == "png":
-                meta_png.add_text(key_name, str(score))
+                if score is not None:
+                    meta_png.add_text(key_name, str(score))
                 meta_png.add_text("software", "ComfyUI_Parallel_Node")
             
             # 2. ComfyUI Workflow Metadata (If requested)
@@ -224,7 +226,8 @@ class FastAbsoluteSaver:
                         "workflow": extra_data.get("workflow", {}) if extra_data else {}
                     }
                     # We also add the custom score here for WebP readers that check Exif
-                    exif_payload[key_name] = score
+                    if score is not None:
+                        exif_payload[key_name] = score
                     
                     user_comment = json.dumps(exif_payload)
                     
@@ -362,27 +365,32 @@ class FastAbsoluteSaver:
             except OSError:
                 raise ValueError(f"Could not create directory: {output_path}")
 
-        if max_threads == 0:
-            max_threads = os.cpu_count() or 4
-        
-        batch_size = len(images)
-        frame_indices, scores_list = self.parse_info(scores_info, batch_size)
-        
-        # --- INDEX LOGIC ---
-        start_counter = 0
-        using_real_frames = any(idx > 0 for idx in frame_indices)
-        
-        if auto_increment and not use_timestamp and not using_real_frames:
-            start_counter = self.get_start_index(output_path, filename_prefix)
+        if images is None or len(images) == 0:
+            raise ValueError("No images provided to FastAbsoluteSaver.")
 
-        # --- VIDEO PATH ---
+        # --- VIDEO PATH (check early, before image-specific logic) ---
         if save_format in ("mp4", "webm"):
+            batch_size = len(images)
+            _, scores_list = self.parse_info(scores_info, batch_size)
             self.save_video(images, output_path, filename_prefix, use_timestamp,
                             video_fps, video_crf, video_pixel_format, save_format,
                             scores_list=scores_list, metadata_key=metadata_key,
                             save_workflow=save_workflow_metadata, prompt_data=prompt,
                             extra_data=extra_pnginfo)
             return {"ui": {"images": []}}
+
+        if max_threads == 0:
+            max_threads = os.cpu_count() or 4
+
+        batch_size = len(images)
+        frame_indices, scores_list = self.parse_info(scores_info, batch_size)
+
+        # --- INDEX LOGIC ---
+        start_counter = 0
+        using_real_frames = any(idx > 0 for idx in frame_indices)
+
+        if auto_increment and not use_timestamp and not using_real_frames:
+            start_counter = self.get_start_index(output_path, filename_prefix)
 
         ts_str = f"_{int(time.time())}" if use_timestamp else ""
 
@@ -393,8 +401,8 @@ class FastAbsoluteSaver:
             
             for i, img_tensor in enumerate(images):
                 real_frame_num = frame_indices[i]
-                current_score = scores_list[i]
-                
+                current_score = scores_list[i] if scores_list else None
+
                 if real_frame_num > 0:
                     number_part = real_frame_num
                 else:
@@ -405,7 +413,7 @@ class FastAbsoluteSaver:
 
                 base_name = f"{filename_prefix}{ts_str}_{number_str}"
 
-                if filename_with_score:
+                if filename_with_score and current_score is not None:
                     base_name += f"_{int(current_score)}"
 
                 ext = ".webp" if save_format == "webp" else ".png"
